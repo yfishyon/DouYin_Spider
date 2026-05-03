@@ -1,6 +1,7 @@
 import asyncio
 from playwright.async_api import async_playwright
 from urllib.parse import urlparse, parse_qs
+import os
 
 webid = None
 msToken = None
@@ -15,10 +16,15 @@ def handle_request(request):
 
 # 每隔1秒判断webid是否拿到
 async def check_webid():
+    max_wait_seconds = int(os.getenv('DY_WEBID_WAIT_SECONDS', '30'))
+    waited = 0
     while True:
         if webid is not None:
             break
+        if waited >= max_wait_seconds:
+            raise TimeoutError('获取 webid 超时，请检查网络、代理或手动验证状态')
         await asyncio.sleep(1)
+        waited += 1
 
 async def get_ttwid_and_webid():
     url = 'https://www.douyin.com/user/MS4wLjABAAAAEpmH344CkCw2M58T33Q8TuFpdvJsOyaZcbWxAMc6H03wOVFf1Ow4mPP94TDUS4Us'

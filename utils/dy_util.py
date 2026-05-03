@@ -11,10 +11,11 @@ from os import path
 import requests
 requests.packages.urllib3.disable_warnings()
 import subprocess
-from functools import partial
-
-subprocess.Popen = partial(subprocess.Popen, encoding="utf-8")
+from functools import wraps
 import execjs
+import execjs._external_runtime as _execjs_external_runtime
+
+import utils.request_util
 
 if getattr(sys, 'frozen', None):
     basedir = sys._MEIPASS
@@ -22,14 +23,34 @@ else:
     basedir = path.dirname(__file__)
 
 
+def _patch_execjs_subprocess_encoding():
+    original_popen = subprocess.Popen
+    if getattr(original_popen, "__name__", "") == "_utf8_popen_wrapper":
+        return
+
+    @wraps(original_popen)
+    def _utf8_popen_wrapper(*args, **kwargs):
+        if "encoding" not in kwargs:
+            kwargs["encoding"] = "utf-8"
+        return original_popen(*args, **kwargs)
+
+    subprocess.Popen = _utf8_popen_wrapper
+    _execjs_external_runtime.Popen = _utf8_popen_wrapper
+
+
+_patch_execjs_subprocess_encoding()
+
+
 try:
     node_modules = path.join(basedir, 'static', 'node_modules')
     login_path = path.join(basedir, 'static', 'login.js')
-    login_js = execjs.compile(open(login_path, 'r', encoding='utf-8').read(), cwd=node_modules)
-except:
+    with open(login_path, 'r', encoding='utf-8') as f:
+        login_js = execjs.compile(f.read(), cwd=node_modules)
+except Exception:
     node_modules = path.join(basedir, '..', 'static', 'node_modules')
     login_path = path.join(basedir, '..', 'static', 'login.js')
-    login_js = execjs.compile(open(login_path, 'r', encoding='utf-8').read(), cwd=node_modules)
+    with open(login_path, 'r', encoding='utf-8') as f:
+        login_js = execjs.compile(f.read(), cwd=node_modules)
 
 
 def generateSecretPhoneNum(phone):
@@ -42,25 +63,33 @@ def generateSecretCode(phone, code):
 try:
     node_modules = path.join(basedir, 'node_modules')
     dy_path = path.join(basedir, 'static', 'dy_ab.js')
-    dy_js = execjs.compile(open(dy_path, 'r', encoding='utf-8').read(), cwd=node_modules)
+    with open(dy_path, 'r', encoding='utf-8') as f:
+        dy_js = execjs.compile(f.read(), cwd=node_modules)
     sign_path = path.join(basedir, 'static', 'dy_live_sign.js')
-    sign_js = execjs.compile(open(sign_path, 'r', encoding='utf-8').read(), cwd=node_modules)
-except:
+    with open(sign_path, 'r', encoding='utf-8') as f:
+        sign_js = execjs.compile(f.read(), cwd=node_modules)
+except Exception:
     node_modules = path.join(basedir, '..', 'node_modules')
     dy_path = path.join(basedir, '..', 'static', 'dy_ab.js')
-    dy_js = execjs.compile(open(dy_path, 'r', encoding='utf-8').read(), cwd=node_modules)
+    with open(dy_path, 'r', encoding='utf-8') as f:
+        dy_js = execjs.compile(f.read(), cwd=node_modules)
     sign_path = path.join(basedir, '..', 'static', 'dy_live_sign.js')
-    sign_js = execjs.compile(open(sign_path, 'r', encoding='utf-8').read(), cwd=node_modules)
+    with open(sign_path, 'r', encoding='utf-8') as f:
+        sign_js = execjs.compile(f.read(), cwd=node_modules)
 
 
 def trans_cookies(cookies_str):
     cookies = {
         # "douyin.com": "",
     }
-    for i in cookies_str.split("; "):
+    if not cookies_str:
+        return cookies
+    for i in re.split(r';\s*', cookies_str.strip()):
+        if not i:
+            continue
         try:
             cookies[i.split('=')[0]] = '='.join(i.split('=')[1:])
-        except:
+        except Exception:
             continue
     # cookies = {i.split('=')[0]: '='.join(i.split('=')[1:]) for i in cookies_str.split('; ')}
     return cookies
@@ -201,10 +230,14 @@ def generate_csrf_token(cookies_str):
             'x-secsdk-csrf-request': '1',
             'x-secsdk-csrf-version': '1.2.22',
         }
-        response = requests.head('https://www.douyin.com/service/2/abtest_config/', headers=headers, verify=False)
-        return response.headers['X-Ware-Csrf-Token'].split(',')[1], response.headers['X-Ware-Csrf-Token'].split(',')[4]
-    except Exception as e:
+        response = requests.head('https://www.douyin.com/service/2/abtest_config/', headers=headers)
+        csrf_header = response.headers.get('X-Ware-Csrf-Token', '')
+        parts = csrf_header.split(',')
+        if len(parts) >= 5:
+            return parts[1], parts[4]
+    except Exception:
         return csrf_token_1, csrf_token_2
+    return csrf_token_1, csrf_token_2
 
 
 def generate_millisecond():

@@ -10,10 +10,108 @@ message Response {
 
 message ResponseBody {
     oneof body {
+        MessageByInitResponseBody message_by_init = 2043;
         NewMessageNotify new_message_notify = 500;
         GetConversationInfoListV2ResponseBody create_conversation_v2_body = 609;
         GetConversationInfoListV2ResponseBody get_conversation_info_list_v2_response_body = 610;
     }
+}
+
+message MessageByInitResponseBody {
+    repeated MessageByInitConversationInfo messages = 1;
+    bool has_more = 2;
+    int64 next_init_version = 3;
+    int64 version = 4;
+    int64 user_cursor = 5;
+    int64 cmd_index = 6;
+    int64 readconv_version = 7;
+}
+
+message MessageByInitConversationInfo {
+    MessageByInitConversation conversations = 1;
+    repeated MessageBody messages = 2;
+}
+
+message MessageByInitConversation {
+    string conversation_id = 1;
+    int64 conversation_short_id = 2;
+    int32 conversation_type = 3;
+    string ticket = 4;
+    FirstPageParticipants first_page_participants = 6;
+    int32 participants_count = 7;
+    bool is_participant = 8;
+    int64 inbox_type = 9;
+    int32 badge_count = 10;
+    MessageByInitConversationCoreInfo conversation_core_info = 50;
+    MessageByInitConversationSettingInfo conversation_setting_info = 51;
+    repeated MuteBadgeCountInfo mute_badge_count_infos = 60;
+    repeated BotInfo bots = 61;
+}
+
+message FirstPageParticipants {
+    repeated MessageByInitParticipant participants = 1;
+    bool has_more = 2;
+}
+
+message MessageByInitParticipant {
+    int64 user_id = 1;
+    string sec_uid = 5;
+    map<string, string> ext = 10;
+}
+
+message MessageByInitConversationCoreInfo {
+    string conversation_id = 1;
+    int64 conversation_short_id = 2;
+    int32 conversation_type = 3;
+    int64 info_version = 4;
+    string name = 5;
+    string desc = 6;
+    string icon = 7;
+    int64 inbox_type = 8;
+    string notice = 9;
+    map<string, string> ext = 11;
+    int64 owner = 12;
+    string sec_owner = 13;
+    int32 block_status = 14;
+    int32 block_normal_only = 15;
+    int32 mode = 16;
+    int64 creator_uid = 17;
+    int64 create_time = 18;
+    repeated ExtVersionInfo ext_version = 42;
+    int32 ext_full = 43;
+    int32 block_source = 47;
+}
+
+message MessageByInitConversationSettingInfo {
+    string conversation_id = 1;
+    int64 conversation_short_id = 2;
+    int32 conversation_type = 3;
+    int64 min_index = 4;
+    int64 read_index = 5;
+    int32 mute = 6;
+    int32 stick_on_top = 7;
+    int64 inbox_type = 8;
+    map<string, string> ext = 9;
+    int64 setting_version = 10;
+    int32 favorite = 11;
+    int64 set_top_time = 12;
+    int64 set_favorite_time = 13;
+    int64 read_index_v2 = 14;
+    int64 min_index_v2 = 15;
+    int32 read_badge_count = 16;
+    repeated ExtVersionInfo ext_version = 32;
+    int32 ext_full = 33;
+}
+
+message ExtVersionInfo {
+    string key = 1;
+    int64 version = 2;
+}
+
+message MuteBadgeCountInfo {
+}
+
+message BotInfo {
 }
 
 message NewMessageNotify {

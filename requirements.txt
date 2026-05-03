@@ -9,3 +9,9 @@ PyExecJS
 requests
 argparse
 websockets
+beautifulsoup4
+protobuf
+websocket-client
+bs4
+playwright
+qrcode

@@ -34,9 +34,14 @@ message Request {
 message RequestBody {
     oneof body {
         SendMessageRequestBody send_message_body = 100;
+        MessageByInitRequestBody message_by_init = 2043;
         CreateConversationV2RequestBody create_conversation_v2_body = 609;
         GetConversationInfoListV2RequestBody get_conversation_info_list_v2_body = 610;
     }
+}
+
+message MessageByInitRequestBody {
+    int32 page = 1;
 }
 
 message SendMessageRequestBody {

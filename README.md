@@ -56,31 +56,43 @@
   - 格式化输出（JSON / EXCEL / MEDIA）
 
 ## 🎨效果图
+
 ### 处理后的所有用户
+
 ![image](https://github.com/cv-cat/DouYin_Spider/assets/94289429/3f3ff858-c443-4a68-bae6-1d16ef43011d)
+
 ### 某个用户所有的视频\图集
+
 ![image](https://github.com/cv-cat/DouYin_Spider/assets/94289429/fa6f5e65-7e3c-4abf-b140-cd20c33d3b43)
+
 ### 某个视频\图集具体的内容
+
 ![image](https://github.com/cv-cat/DouYin_Spider/assets/94289429/16cfc027-6186-4914-bca4-901f886a9b82)
+
 ### 某个直播时的具体弹幕发言和礼物数据
+
 ![image](https://github.com/cv-cat/DouYin_Spider/assets/94289429/e2cde1f1-6309-44fe-8aa3-bca2821bf30d)
+
 ### 保存的excel
+
 ![image](https://github.com/user-attachments/assets/5dfd8fb4-7597-4f54-af6a-9ab8ba766b7c)
 
-
-
 ## 🛠️ 快速开始
+
 ### ⛳运行环境
+
 - Python 3.7+
 - Node.js 18+
 
 ### 🎯安装依赖
+
 ```
 pip install -r requirements.txt
 npm install
 ```
 
 ### 🎨配置文件
+
 这里以小红书的cookie获取为例
 
 注意.env文件有两个变量，一个是打开www.douyin.com这个域名获取的，另一个是打开live.douyin.com这个域名获取的，第一个用于爬虫，第二个用于直播间监听
@@ -91,9 +103,39 @@ npm install
 复制cookie到.env文件中（注意！登录抖音后的cookie才是有效的，不登陆没有用）
 ![image](https://github.com/user-attachments/assets/60291f3f-9b69-423f-8b11-167278d44639)
 
+如果你需要使用**私信发送**、**创建会话**等功能，除了 `DY_COOKIES` 之外，还需要额外配置以下两个环境变量：
 
+- `DY_WEB_PROTECT`
+- `DY_KEYS`
+
+这两个值用于构造请求签名、证书和加密参数。只做普通数据抓取时通常不强依赖，但涉及主动私信能力时必填。
+
+可选代理配置：
+
+- `DY_PROXY=http://127.0.0.1:7890`
+- 或分别配置 `DY_HTTP_PROXY` / `DY_HTTPS_PROXY`
+
+示例：
+
+```env
+DY_COOKIES=你的网页登录cookie
+DY_LIVE_COOKIES=你的直播cookie
+DY_WEB_PROTECT=从导出脚本获取
+DY_KEYS=从导出脚本获取
+DY_PROXY=http://127.0.0.1:7890
+```
+
+### 导出 `DY_WEB_PROTECT` 和 `DY_KEYS`
+
+1. 先登录 `https://www.douyin.com/`
+2. 打开浏览器开发者工具控制台
+3. 执行 `scripts/export_dy_security_env.js`
+4. 将控制台输出复制到项目根目录 `.env`
+
+如果脚本输出为空，先刷新页面并等待页面完全加载后再执行一次。
 
 ### 🚀运行项目
+
 ```
 # 数据爬取
 python main.py
@@ -106,26 +148,26 @@ python dy_apis/douyin_recv_msg.py
 ```
 
 ### 🗝️注意事项
+
 - `main.py` 是爬虫入口，可根据需求自行修改调用
 - `dy_apis/douyin_api.py` 包含全部 API 接口封装，含直播间点赞、发消息、私信收发等
 - `dy_live/server.py` 包含直播间 WebSocket 监听逻辑
 - `dy_apis/douyin_recv_msg.py` 包含抖音私信 WebSocket 实时接收逻辑
 
-
 ## 🍥日志
-   
-| 日期       | 说明                                   |
-| -------- | ------------------------------------ |
-| 23/10/05 | - 项目完成。 |
-| 23/10/17 | - 首次提交。 |
-| 23/10/18 | - 监听直播间弹幕和礼物。 |
-| 23/10/21 | - 新增搜索智能排序和限制时间。 |
-| 23/10/21 | - 新增可视化界面到release v1.1.0。 |
-| 23/10/25 | - 新增issue提出的输出直播间消息时包括用户等级。 |
-| 23/10/28 | - 遇到验证码请手动点击！Fix Some Bugs。 |
-| 23/11/11 | - 修复了很多很多大家的bug~~，关于v.dy格式的url正在处理 |
-| 23/12/22 | - 修复了直播间监控 |
-| 25/06/07 | - 开放所有之前闭源的代码，包括数据爬取和直播间监听 |
+
+| 日期     | 说明                                                                                                                  |
+| -------- | --------------------------------------------------------------------------------------------------------------------- |
+| 23/10/05 | - 项目完成。                                                                                                          |
+| 23/10/17 | - 首次提交。                                                                                                          |
+| 23/10/18 | - 监听直播间弹幕和礼物。                                                                                              |
+| 23/10/21 | - 新增搜索智能排序和限制时间。                                                                                        |
+| 23/10/21 | - 新增可视化界面到release v1.1.0。                                                                                    |
+| 23/10/25 | - 新增issue提出的输出直播间消息时包括用户等级。                                                                       |
+| 23/10/28 | - 遇到验证码请手动点击！Fix Some Bugs。                                                                               |
+| 23/11/11 | - 修复了很多很多大家的bug~~，关于v.dy格式的url正在处理                                                                |
+| 23/12/22 | - 修复了直播间监控                                                                                                    |
+| 25/06/07 | - 开放所有之前闭源的代码，包括数据爬取和直播间监听                                                                    |
 | 26/04/09 | - 修复直播间礼物信息接收（含送礼对象）；新增直播间点赞、直播间发弹幕；新增抖音私信实时接收（WebSocket）与主动发送功能 |
 
 ## 🤝 欢迎贡献 PR
@@ -138,6 +180,7 @@ python dy_apis/douyin_recv_msg.py
 - 也欢迎通过 [Issue](https://github.com/cv-cat/DouYin_Spider/issues) 提出建议或报告问题
 
 ## 🧸额外说明
+
 1. 感谢star⭐和follow📰！不时更新
 2. 作者的联系方式在主页里，有问题可以随时联系我
 3. 可以关注下作者的其他项目，欢迎 PR 和 issue
@@ -149,8 +192,8 @@ python dy_apis/douyin_recv_msg.py
   <img src="./author/zfb_pay.jpg" width="400px" alt="支付宝收款码">
 </div>
 
-
 ## 📈 Star 趋势
+
 <a href="https://www.star-history.com/#cv-cat/DouYin_Spider&Date">
  <picture>
    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=cv-cat/DouYin_Spider&type=Date&theme=dark" />
@@ -159,14 +202,12 @@ python dy_apis/douyin_recv_msg.py
  </picture>
 </a>
 
-
 ## 🍔 交流群
+
 如果你对爬虫和ai agent感兴趣，请加作者主页wx通过邀请加入群聊
 
-ps: 请加群8，人满或者过期 issue | wx 提醒
+ps: 请加群9、10，人满或者过期 issue | wx 提醒
 
-![group7](https://github.com/cv-cat/Spider_XHS/blob/master/author/group8.jpg)
+![group7](https://github.com/cv-cat/Spider_XHS/blob/master/author/group9.jpg)
 
-
-
-
+![group7](https://github.com/cv-cat/Spider_XHS/blob/master/author/group10.jpg)

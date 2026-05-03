@@ -1,14 +1,17 @@
 import hashlib
 import json
+import time
+from typing import Any
 
 import websocket
 from websocket import WebSocketApp
 
-from douyin_api import DouyinAPI
+from dy_apis.douyin_api import DouyinAPI
 from builder.auth import DouyinAuth
 from builder.header import HeaderBuilder
 from builder.params import Params
 from static import Live_pb2, Response_pb2
+from utils.common_util import load_env
 
 
 class DouyinRecvMsg:
@@ -19,6 +22,7 @@ class DouyinRecvMsg:
         self.auto_reconnect = auto_reconnect
         self.auth = auth
         self.ws = None
+        self.auth.require_cookie_keys(["sessionid"])
         deviceId = DouyinAPI.get_device_id(auth=self.auth)
         accessKey = f'{self.fpId + self.appKey + deviceId}f8a69f1719916z'
         accessKey = hashlib.md5(accessKey.encode(encoding='UTF-8')).hexdigest()
@@ -28,47 +32,79 @@ class DouyinRecvMsg:
          .add_param("device_platform", "douyin_pc")
          .add_param("fpid", self.fpId)
          .add_param("device_id", deviceId)
-         .add_param("token", self.auth.cookie["sessionid"])
+         .add_param("token", (self.auth.cookie or {}).get("sessionid", ""))
          .add_param("access_key", accessKey)
          )
         self.url = f"wss://frontier-im.douyin.com/ws/v2?{params.toString()}"
+
+    @staticmethod
+    def _ensure_dict(content: Any) -> dict:
+        if isinstance(content, dict):
+            return content
+        if isinstance(content, str):
+            try:
+                parsed = json.loads(content)
+                return parsed if isinstance(parsed, dict) else {"raw": content}
+            except json.JSONDecodeError:
+                return {"raw": content}
+        return {}
 
     def on_open(self, ws):
         print("WebSocket connection open.")
 
     def on_message(self, ws, message):
-        frame = Live_pb2.PushFrame()
+        frame = getattr(Live_pb2, 'PushFrame', None)
+        if frame is None:
+            raise RuntimeError('static.Live_pb2 缺少 PushFrame，请重新生成 protobuf 文件')
+        frame = frame()
         frame.ParseFromString(message)
         if frame.payloadType == 'pb':
-            response = Response_pb2.Response()
+            response_cls = getattr(Response_pb2, 'Response', None)
+            if response_cls is None:
+                raise RuntimeError('static.Response_pb2 缺少 Response，请重新生成 protobuf 文件')
+            response = response_cls()
             response.ParseFromString(frame.payload)
-            sender = response.body.new_message_notify.message.sender
-            content = response.body.new_message_notify.message.content
-            msg_type = response.body.new_message_notify.message.message_type
-            conversation_id = response.body.new_message_notify.message.conversation_id
-            index = response.body.new_message_notify.message.index_in_conversation
-            content = json.loads(content)
+            if not hasattr(response.body, 'new_message_notify'):
+                return
+            msg = response.body.new_message_notify.message
+            sender = getattr(msg, 'sender', '')
+            content = getattr(msg, 'content', '')
+            msg_type = getattr(msg, 'message_type', 0)
+            conversation_id = getattr(msg, 'conversation_id', '')
+            index = getattr(msg, 'index_in_conversation', 0)
+            content = self._ensure_dict(content)
             if msg_type == 7:
-                print(f'【消息编号:{index}】【聊天室ID:{conversation_id}】【来自:{sender}】文本消息:{content["text"]}')
+                print(f'【消息编号:{index}】【聊天室ID:{conversation_id}】【来自:{sender}】文本消息:{content.get("text", "")}')
             elif msg_type == 5:
-                print(f'【消息编号:{index}】【聊天室ID:{conversation_id}】【来自:{sender}】用户表情包消息:{content["url"]["url_list"][0]}')
+                emoji_url = content.get("url", {}).get("url_list", [""])
+                print(f'【消息编号:{index}】【聊天室ID:{conversation_id}】【来自:{sender}】用户表情包消息:{emoji_url[0]}')
             elif msg_type == 17:
-                print(f'【消息编号:{index}】【聊天室ID:{conversation_id}】【来自:{sender}】语音信息:{content["resource_url"]["url_list"][0]}')
+                voice_url = content.get("resource_url", {}).get("url_list", [""])
+                print(f'【消息编号:{index}】【聊天室ID:{conversation_id}】【来自:{sender}】语音信息:{voice_url[0]}')
             elif msg_type == 27:
-                print(f'【消息编号:{index}】【聊天室ID:{conversation_id}】【来自:{sender}】图片信息:{content["resource_url"]["origin_url_list"][0]}')
+                image_url = content.get("resource_url", {}).get("origin_url_list", [""])
+                print(f'【消息编号:{index}】【聊天室ID:{conversation_id}】【来自:{sender}】图片信息:{image_url[0]}')
             elif msg_type == 8:
-                print(f'【消息编号:{index}】【聊天室ID:{conversation_id}】【来自:{sender}】分享视频信息:视频ID{content["itemId"]}')
+                print(f'【消息编号:{index}】【聊天室ID:{conversation_id}】【来自:{sender}】分享视频信息:视频ID{content.get("itemId", "")}')
             elif msg_type == 50001:
-                print(f'对方已读，消息标号:{content["read_index"]}')
+                read_index = content.get("read_index") or content.get("index_in_conversation") or index
+                print(f'对方已读，消息标号:{read_index}')
+            else:
+                print(f'【消息编号:{index}】【聊天室ID:{conversation_id}】【来自:{sender}】未处理消息类型:{msg_type} 内容:{content}')
         elif frame.payloadType == 'text/json':
-            print(json.loads(frame.payload))
+            try:
+                print(json.loads(frame.payload))
+            except json.JSONDecodeError:
+                print(frame.payload)
 
     def on_error(self, ws, error):
         print("\033[31m### error ###")
         print(error)
         print("### ===error=== ###\033[m")
-        if type(error) == ConnectionRefusedError or type(
-                error) == websocket._exceptions.WebSocketConnectionClosedException and self.auto_reconnect:
+        if self.auto_reconnect and (
+                isinstance(error, ConnectionRefusedError) or
+                isinstance(error, websocket._exceptions.WebSocketConnectionClosedException)):
+            time.sleep(3)
             self.start()
 
     def on_close(self, ws, close_status_code, close_msg):
@@ -103,10 +139,6 @@ class DouyinRecvMsg:
 
 if __name__ == '__main__':
     # websocket.enableTrace(True)
-    web_protect_str = r''
-    keys_str = r''
-    cookies_str = r''
-    auth_ = DouyinAuth()
-    auth_.perepare_auth(cookies_str, web_protect_str, keys_str)
+    auth_ = load_env()
     douyinMsg = DouyinRecvMsg(auth_)
     douyinMsg.start()

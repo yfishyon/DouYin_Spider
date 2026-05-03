@@ -18,6 +18,8 @@ class DouyinLive:
         self.auth_ = auth_
         self.live_id = live_id
         self.ws = None
+        self.reconnect_attempts = 0
+        self.max_reconnect_attempts = 5
 
     def ping(self, ws):
         while True:
@@ -92,13 +94,18 @@ class DouyinLive:
 
     def on_close(self, ws, close_status_code, close_msg):
         # 此处判断是否需要重连 判断直播间是否关闭
-        self.start_ws()
+        if self.reconnect_attempts < self.max_reconnect_attempts:
+            self.reconnect_attempts += 1
+            time.sleep(min(self.reconnect_attempts * 2, 10))
+            self.start_ws()
         print("\033[31m### closed ###")
         print(f"status_code: {close_status_code}, msg: {close_msg}")
         print("### ===closed=== ###\033[m")
 
     def start_ws(self):
         room_info = DouyinAPI.get_live_info(self.auth_, self.live_id)
+        if not room_info:
+            raise ValueError('获取直播间信息失败，请检查直播间 ID、Cookie 或代理配置')
         room_id = room_info['room_id']
         user_id = room_info['user_id']
         ttwid = room_info['ttwid']
@@ -161,6 +168,7 @@ class DouyinLive:
         )
         try:
             self.ws.run_forever(origin='https://live.douyin.com')
+            self.reconnect_attempts = 0
         except Exception as e:
             print(str(e))
             self.ws.close()

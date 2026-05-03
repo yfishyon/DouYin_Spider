@@ -27,7 +27,11 @@ class Header:
         return self
 
     def with_csrf(self, cookie_str):
-        self.set_header('x-secsdk-csrf-token', generate_csrf_token(cookie_str)[0])
+        csrf_token, _ = generate_csrf_token(cookie_str)
+        if not csrf_token:
+            raise ValueError('获取 csrf token 失败，请检查 Cookie 是否有效')
+        self.set_header('x-secsdk-csrf-token', csrf_token)
+        return self
 
     def set_referer(self, url):
         self.set_header('referer', url)

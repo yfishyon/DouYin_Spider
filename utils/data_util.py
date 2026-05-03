@@ -7,6 +7,8 @@ import requests
 from loguru import logger
 from retry import retry
 
+import utils.request_util
+
 
 def norm_str(str):
     new_str = re.sub(r"|[\\/:*?\"<>| ]+", "", str).replace('\n', '').replace('\r', '')
@@ -26,42 +28,42 @@ def timestamp_to_str(timestamp):
 
 
 def handle_work_info(data):
-    sec_uid = data['author']['sec_uid']
+    author = data.get('author') or {}
+    statistics = data.get('statistics') or {}
+    video = data.get('video') or {}
+    sec_uid = author.get('sec_uid', '')
     user_url = f'https://www.douyin.com/user/{sec_uid}'
-    user_desc = data['author']['signature'] if 'signature' in data['author'] else '未知'
-    following_count = data['author']['following_count'] if 'following_count' in data['author'] else '未知'
-    follower_count = data['author']['follower_count'] if 'follower_count' in data['author'] else '未知'
-    total_favorited = data['author']['total_favorited'] if 'total_favorited' in data['author'] else '未知'
-    aweme_count = data['author']['aweme_count'] if 'aweme_count' in data['author'] else '未知'
-    user_id = data['author']['unique_id'] if 'unique_id' in data['author'] else '未知'
-    user_age = data['author']['user_age'] if 'user_age' in data['author'] else '未知'
-    gender = data['author']['gender'] if 'gender' in data['author'] else '未知'
+    user_desc = author.get('signature', '未知')
+    following_count = author.get('following_count', '未知')
+    follower_count = author.get('follower_count', '未知')
+    total_favorited = author.get('total_favorited', '未知')
+    aweme_count = author.get('aweme_count', '未知')
+    user_id = author.get('unique_id', '未知')
+    user_age = author.get('user_age', '未知')
+    gender = author.get('gender', '未知')
     if gender == 1:
         gender = '男'
     elif gender == 0:
         gender = '女'
     else:
         gender = '未知'
-    try:
-        ip_location = data['user']['ip_location']
-    except:
-        ip_location = '未知'
-    aweme_id = data['aweme_id']
-    nickname = data['author']['nickname']
-    author_avatar = data['author']['avatar_thumb']['url_list'][0]
-    video_cover = data['video']['cover']['url_list'][0]
-    title = data['desc']
-    desc = data['desc']
-    admire_count = data['statistics']['admire_count'] if 'admire_count' in data['statistics'] else 0
-    digg_count = data['statistics']['digg_count']
-    commnet_count = data['statistics']['comment_count']
-    collect_count = data['statistics']['collect_count']
-    share_count = data['statistics']['share_count']
-    video_addr = data['video']['play_addr']['url_list'][0]
-    images = data['images']
+    ip_location = (data.get('user') or {}).get('ip_location', '未知')
+    aweme_id = data.get('aweme_id', '')
+    nickname = author.get('nickname', '未知')
+    author_avatar = ((author.get('avatar_thumb') or {}).get('url_list') or [''])[0]
+    video_cover = ((video.get('cover') or {}).get('url_list') or [''])[0]
+    title = data.get('desc', '')
+    desc = data.get('desc', '')
+    admire_count = statistics.get('admire_count', 0)
+    digg_count = statistics.get('digg_count', 0)
+    commnet_count = statistics.get('comment_count', 0)
+    collect_count = statistics.get('collect_count', 0)
+    share_count = statistics.get('share_count', 0)
+    video_addr = ((video.get('play_addr') or {}).get('url_list') or [''])[0]
+    images = data.get('images', [])
     if not isinstance(images, list):
         images = []
-    create_time = data['create_time']
+    create_time = data.get('create_time', 0)
 
     text_extra = data['text_extra'] if 'text_extra' in data else []
     text_extra = text_extra if text_extra else []
@@ -121,6 +123,8 @@ def save_to_xlsx(datas, file_path):
     logger.info(f'数据保存至 {file_path}')
 
 def download_media(path, name, url, type):
+    if not url:
+        return
     if type == 'image':
         content = requests.get(url).content
         with open(path + '/' + name + '.jpg', mode="wb") as f:

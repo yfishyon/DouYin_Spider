@@ -1,20 +1,171 @@
 import json
 import random
 import re
-import time
-import urllib
+from urllib.parse import quote
 import uuid
+from typing import Any
 
 import requests
-requests.packages.urllib3.disable_warnings()
+import urllib3
+urllib3.disable_warnings()
 from bs4 import BeautifulSoup
-from protobuf_to_dict import protobuf_to_dict
 
 import static.Response_pb2 as ResponseProto
 from builder.header import HeaderBuilder, HeaderType
 from builder.params import Params
 from builder.proto import ProtoBuilder
 from utils.dy_util import splice_url, generate_a_bogus, generate_msToken, trans_cookies
+from google.protobuf.message import Message
+
+
+def protobuf_to_dict(message):
+    """
+    兼容 Python 3，避免第三方 protobuf_to_dict 在新版本解释器下的错误
+    """
+    result = {}
+    for field, value in message.ListFields():
+        result[field.name] = _convert_protobuf_value(value)
+    return result
+
+
+def _convert_protobuf_value(value):
+    if isinstance(value, Message):
+        return protobuf_to_dict(value)
+    if hasattr(value, "ListFields"):
+        return protobuf_to_dict(value)
+    if type(value).__name__ == "ScalarMapContainer":
+        return {k: _convert_protobuf_value(v) for k, v in value.items()}
+    if type(value).__name__ in {"RepeatedCompositeContainer", "RepeatedScalarContainer"}:
+        return [_convert_protobuf_value(item) for item in value]
+    if hasattr(value, "__iter__") and not isinstance(value, (str, bytes, dict)):
+        return [_convert_protobuf_value(item) for item in value]
+    return value
+
+
+def _deep_get(container: Any, *keys, default=None):
+    current = container
+    for key in keys:
+        if isinstance(current, dict):
+            if key not in current:
+                return default
+            current = current[key]
+            continue
+        if isinstance(current, list) and isinstance(key, int):
+            if key < 0 or key >= len(current):
+                return default
+            current = current[key]
+            continue
+        return default
+    return current
+
+
+def _normalize_conversation_info(conversation: dict) -> dict:
+    conversation = conversation if isinstance(conversation, dict) else {}
+    participants = _deep_get(conversation, "first_page_participants", "participants", default=[]) or []
+    owner = _deep_get(conversation, "conversation_core_info", "owner") or conversation.get("owner")
+    target_participant = None
+    for participant in participants:
+        if not isinstance(participant, dict):
+            continue
+        if owner and participant.get("user_id") == owner:
+            continue
+        target_participant = participant
+        break
+    name = (
+        conversation.get("name")
+        or conversation.get("conversation_name")
+        or _deep_get(conversation, "conversation_core_info", "name")
+        or _deep_get(conversation, "target_user", "nickname")
+        or _deep_get(conversation, "to_user", "nickname")
+        or _deep_get(conversation, "user_info", "nickname")
+        or _deep_get(target_participant, "nickname")
+        or _deep_get(conversation, "participant", 0, "nickname")
+        or _deep_get(conversation, "participants", 0, "nickname")
+        or _deep_get(conversation, "member", 0, "nickname")
+        or ""
+    )
+    remark_name = (
+        conversation.get("remark_name")
+        or _deep_get(conversation, "target_user", "remark_name")
+        or _deep_get(conversation, "to_user", "remark_name")
+        or _deep_get(conversation, "user_info", "remark_name")
+        or ""
+    )
+    return {
+        "conversation_id": conversation.get("conversation_id", conversation.get("id", "")),
+        "conversation_short_id": conversation.get("conversation_short_id", conversation.get("short_id", 0)),
+        "conversation_type": conversation.get("conversation_type", conversation.get("type", 0)),
+        "ticket": conversation.get("ticket", ""),
+        "name": name,
+        "remark_name": remark_name,
+        "participants": participants,
+        "conversation_core_info": conversation.get("conversation_core_info", {}),
+        "conversation_setting_info": conversation.get("conversation_setting_info", {}),
+        "raw": conversation,
+    }
+
+
+def _build_sec_uid_user_url(sec_uid: str) -> str:
+    return f"https://www.douyin.com/user/{sec_uid}"
+
+
+def _enrich_conversation_name_from_user_info(auth, conversation_info: dict, user_cache: dict[str, dict] | None = None) -> dict:
+    if not isinstance(conversation_info, dict):
+        return conversation_info
+    if conversation_info.get("name"):
+        return conversation_info
+
+    participants = conversation_info.get("participants") or []
+    if not isinstance(participants, list) or not participants:
+        return conversation_info
+
+    owner = _deep_get(conversation_info, "conversation_core_info", "owner")
+    target_participant = None
+    for participant in participants:
+        if not isinstance(participant, dict):
+            continue
+        if owner and participant.get("user_id") == owner:
+            continue
+        target_participant = participant
+        break
+    target_participant = target_participant or (participants[0] if participants and isinstance(participants[0], dict) else None)
+    if not isinstance(target_participant, dict):
+        return conversation_info
+
+    sec_uid = str(target_participant.get("sec_uid") or "").strip()
+    if not sec_uid:
+        return conversation_info
+
+    cache = user_cache if user_cache is not None else {}
+    user_payload = cache.get(sec_uid)
+    if user_payload is None:
+        try:
+            user_payload = DouyinAPI.get_user_info(auth, _build_sec_uid_user_url(sec_uid))
+        except Exception:
+            user_payload = {}
+        cache[sec_uid] = user_payload
+
+    user_info = user_payload.get("user") if isinstance(user_payload, dict) else {}
+    if not isinstance(user_info, dict):
+        user_info = {}
+
+    nickname = str(user_info.get("nickname") or user_info.get("remark_name") or "")
+    signature = str(user_info.get("signature") or "")
+    avatar = _deep_get(user_info, "avatar_thumb", "url_list", 0, default="") or _deep_get(user_info, "avatar_medium", "url_list", 0, default="") or ""
+
+    if nickname:
+        conversation_info["name"] = nickname
+    if user_info.get("remark_name") and not conversation_info.get("remark_name"):
+        conversation_info["remark_name"] = str(user_info.get("remark_name"))
+    core_info = conversation_info.setdefault("conversation_core_info", {})
+    if isinstance(core_info, dict):
+        if nickname and not core_info.get("name"):
+            core_info["name"] = nickname
+        if signature and not core_info.get("desc"):
+            core_info["desc"] = signature
+        if avatar and not core_info.get("icon"):
+            core_info["icon"] = avatar
+    return conversation_info
 
 
 
@@ -402,7 +553,7 @@ class DouyinAPI:
         """
         api = f"/aweme/v1/web/general/search/single/"
         headers = HeaderBuilder().build(HeaderType.GET)
-        refer = f'https://www.douyin.com/search/{urllib.parse.quote(query)}?aid={uuid.uuid4()}&type=general'
+        refer = f'https://www.douyin.com/search/{quote(query)}?aid={uuid.uuid4()}&type=general'
         headers.set_referer(refer)
         params = Params()
         params.add_param("device_platform", "webapp")
@@ -518,7 +669,7 @@ class DouyinAPI:
         """
         api = "/aweme/v1/web/discover/search"
         headers = HeaderBuilder().build(HeaderType.GET)
-        refer = f'https://www.douyin.com/search/{urllib.parse.quote(query)}?aid={uuid.uuid4()}&type=general'
+        refer = f'https://www.douyin.com/search/{quote(query)}?aid={uuid.uuid4()}&type=general'
         headers.set_referer(refer)
         params = Params()
         params.add_param("device_platform", 'webapp')
@@ -577,7 +728,7 @@ class DouyinAPI:
         """
         api = "/aweme/v1/web/live/search/"
         headers = HeaderBuilder().build(HeaderType.GET)
-        refer = f'https://www.douyin.com/search/{urllib.parse.quote(query)}?aid={uuid.uuid4()}&type=live'
+        refer = f'https://www.douyin.com/search/{quote(query)}?aid={uuid.uuid4()}&type=live'
         headers.set_referer(refer)
         params = Params()
         params.add_param("device_platform", 'webapp')
@@ -860,7 +1011,7 @@ class DouyinAPI:
         :param url: 直播间链接.
         :return:
         """
-        room_info = DouyinAPI.get_live_info(auth, url.split("/")[-1].split("?")[0])
+        room_info = json.loads(json.dumps(DouyinAPI.get_live_info(auth, url.split("/")[-1].split("?")[0])))
         room_id = room_info["room_id"]
         author_id = room_info["author_id"]
         offset = "0"
@@ -1717,7 +1868,7 @@ class DouyinAPI:
             data=requestProto.SerializeToString(),
             verify=False
         )
-        responseProto = ResponseProto.Response()
+        responseProto = getattr(ResponseProto, 'Response')()
         responseProto.ParseFromString(resp.content)
         resp_json = protobuf_to_dict(responseProto)
         conversation = resp_json['body']['create_conversation_v2_body']['conversation_info_list'][0]
@@ -1726,8 +1877,110 @@ class DouyinAPI:
         return conversation_id, conversation_short_id, ticket
 
     @staticmethod
-    def get_conversation_list(auth, aweme_id: str, **kwargs) -> list:
-        pass
+    def get_conversation_list(auth, page: int = 0, **kwargs) -> list:
+        """
+        获取对话列表。
+        :param auth: DouyinAuth object.
+        :param page: 页码。
+        :return: 归一化后的会话列表。
+        """
+        url = 'https://imapi.douyin.com/v1/message/get_message_by_init'
+        headers = HeaderBuilder().build(HeaderType.PROTOBUF)
+        headers.set_header('referer', 'https://www.douyin.com/')
+        request_proto = ProtoBuilder.build_message_by_init_request(auth, page)
+        resp = requests.post(
+            url,
+            headers=headers.get(),
+            cookies=auth.cookie,
+            verify=False,
+            data=request_proto.SerializeToString(),
+        )
+        response_proto = getattr(ResponseProto, 'Response')()
+        response_proto.ParseFromString(resp.content)
+        message_by_init = response_proto.body.message_by_init
+        conversation_list = []
+        user_cache = {}
+        for item in message_by_init.messages:
+            conversation = protobuf_to_dict(item.conversations)
+            normalized = _normalize_conversation_info(conversation)
+            normalized = _enrich_conversation_name_from_user_info(auth, normalized, user_cache)
+            conversation_list.append(normalized)
+        return conversation_list
+
+    @staticmethod
+    def get_conversation_info(auth, conversation_short_id: int, **kwargs) -> list:
+        """
+        获取指定会话的信息。
+        :param auth: DouyinAuth object.
+        :param conversation_short_id: 会话短 id。
+        :keyword to_user_id: 对端用户 id。
+        :keyword conversation_id: 会话 id。
+        :keyword conversation_type: 会话类型，默认 1。
+        :return: 归一化后的会话信息列表。
+        """
+        to_user_id = kwargs.get("to_user_id") or kwargs.get("user_id") or kwargs.get("target_user_id")
+        conversation_id = kwargs.get("conversation_id")
+        url = "https://imapi.douyin.com/v1/stranger/get_conversation_list"
+        headers = HeaderBuilder().build(HeaderType.PROTOBUF)
+        headers.set_header('referer', 'https://www.douyin.com/')
+
+        if to_user_id and conversation_short_id:
+            my_id = auth.get_uid()
+            request_proto = ProtoBuilder.build_get_conversation_list_info_request(
+                auth, to_user_id, my_id, int(conversation_short_id)
+            )
+        else:
+            if not conversation_id:
+                raise ValueError("get_conversation_info 需要提供 conversation_id，或同时提供 to_user_id")
+            request_proto = ProtoBuilder.build_normal_request(auth, 610)
+            request_proto.body.get_conversation_info_list_v2_body.data.conversation_id = str(conversation_id)
+            request_proto.body.get_conversation_info_list_v2_body.data.conversation_short_id = int(conversation_short_id)
+            request_proto.body.get_conversation_info_list_v2_body.data.conversation_type = int(kwargs.get("conversation_type", 1))
+
+        resp = requests.post(
+            url,
+            headers=headers.get(),
+            cookies=auth.cookie,
+            data=request_proto.SerializeToString(),
+            verify=False
+        )
+        response_proto = getattr(ResponseProto, 'Response')()
+        response_proto.ParseFromString(resp.content)
+        resp_json = protobuf_to_dict(response_proto)
+        body = resp_json.get('body', {})
+        conversation_list = (
+            _deep_get(body, 'get_conversation_info_list_v2_response_body', 'conversation_info_list', default=None)
+            or _deep_get(body, 'create_conversation_v2_body', 'conversation_info_list', default=None)
+            or []
+        )
+        normalized_list = []
+        fallback_conversation_map = {}
+        try:
+            fallback_conversation_map = {
+                item.get("conversation_short_id"): item
+                for item in DouyinAPI.get_conversation_list(auth, 0)
+                if isinstance(item, dict)
+            }
+        except Exception:
+            fallback_conversation_map = {}
+
+        for item in conversation_list:
+            normalized = _normalize_conversation_info(item)
+            fallback_item = fallback_conversation_map.get(normalized.get("conversation_short_id"))
+            if isinstance(fallback_item, dict):
+                if not normalized.get("name") and fallback_item.get("name"):
+                    normalized["name"] = fallback_item.get("name", "")
+                if not normalized.get("remark_name") and fallback_item.get("remark_name"):
+                    normalized["remark_name"] = fallback_item.get("remark_name", "")
+                if not normalized.get("participants"):
+                    normalized["participants"] = fallback_item.get("participants", [])
+                if not normalized.get("conversation_core_info"):
+                    normalized["conversation_core_info"] = fallback_item.get("conversation_core_info", {})
+                if not normalized.get("conversation_setting_info"):
+                    normalized["conversation_setting_info"] = fallback_item.get("conversation_setting_info", {})
+            normalized = _enrich_conversation_name_from_user_info(auth, normalized)
+            normalized_list.append(normalized)
+        return normalized_list
 
     @staticmethod
     def send_msg(auth, conversation_id, conversation_short_id, ticket, content: str, **kwargs) -> bool:
@@ -1755,10 +2008,11 @@ class DouyinAPI:
         params['a_bogus'] = abogus
         resp = requests.post(url, params=params, headers=headers.get(), verify=False, cookies=auth.cookie,
                              data=requestProto.SerializeToString())
-        responseProto = ResponseProto.Response()
+        responseProto = getattr(ResponseProto, 'Response')()
         responseProto.ParseFromString(resp.content)
         resp_json = protobuf_to_dict(responseProto)
         print(resp_json)
+        return resp_json.get('message') == 'OK'
 
     @staticmethod
     def get_device_id(auth, **kwargs) -> str:
@@ -1869,7 +2123,7 @@ class DouyinAPI:
         """
         api = "/aweme/v1/web/search/item/"
         headers = HeaderBuilder().build(HeaderType.GET)
-        refer = f'https://www.douyin.com/search/{urllib.parse.quote(query)}?aid={uuid.uuid4()}&type=video'
+        refer = f'https://www.douyin.com/search/{quote(query)}?aid={uuid.uuid4()}&type=video'
         headers.set_referer(refer)
         params = Params()
         params.add_param("device_platform", 'webapp')
@@ -1942,10 +2196,12 @@ if __name__ == '__main__':
     res = DouyinAPI.get_live_info(auth_, live_id)
     print(res)
 
-    room_id = res['room_id']
-    anchor_id = res['anchor_id']
-    sec_anchor_id = res['sec_uid']
-    DouyinAPI.get_rank_list(auth_, room_id, anchor_id, sec_anchor_id)
+    if isinstance(res, dict):
+        room_id = res.get('room_id')
+        anchor_id = res.get('anchor_id')
+        sec_anchor_id = res.get('sec_uid')
+        if room_id and anchor_id and sec_anchor_id:
+            DouyinAPI.get_rank_list(auth_, room_id, anchor_id, sec_anchor_id)
 
 
 

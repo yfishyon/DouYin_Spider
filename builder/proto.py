@@ -75,6 +75,46 @@ class ProtoBuilder:
         return request
 
     @staticmethod
+    def build_message_by_init_request(auth, page=0):
+        request = RequestProto.Request()
+        request.cmd = 2043
+        request.sequence_id = random.randint(10000, 11000)
+        request.sdk_version = "0.1.6"
+        request.token = ""
+        request.refer = 3
+        request.inbox_type = 1
+        request.build_number = "fef1a80:p/lzg/store"
+        request.device_id = '0'
+        request.device_platform = 'douyin_pc'
+        request.version_code = '360000'
+        request.auth_type = 1
+        request.biz = 'douyin_web'
+        request.access = 'web_sdk'
+
+        request.headers['session_aid'] = '6383'
+        request.headers['session_did'] = '0'
+        request.headers['app_name'] = 'douyin_pc'
+        request.headers['priority_region'] = 'cn'
+        request.headers['user_agent'] = HeaderBuilder.ua
+        request.headers['cookie_enabled'] = 'true'
+        request.headers['browser_language'] = 'zh-CN'
+        request.headers['browser_platform'] = 'Win32'
+        request.headers['browser_name'] = 'Mozilla'
+        request.headers['browser_version'] = HeaderBuilder.ua.split('Mozilla/')[-1]
+        request.headers['browser_online'] = 'true'
+        request.headers['screen_width'] = '1707'
+        request.headers['screen_height'] = '960'
+        request.headers['referer'] = 'https://www.douyin.com/chat?isPopup=1'
+        request.headers['timezone_name'] = 'Etc/GMT-8'
+        request.headers['deviceId'] = '0'
+        request.headers['webid'] = generate_webid()
+        request.headers['fp'] = auth.cookie['s_v_web_id']
+        request.headers['is-retry'] = '0'
+
+        request.body.message_by_init.page = int(page)
+        return request
+
+    @staticmethod
     def build_send_message_request(auth, conversation_id, conversation_short_id, ticket, message):
         client_message_id = str(uuid.uuid4())
         request = ProtoBuilder.build_normal_request(auth, 100)

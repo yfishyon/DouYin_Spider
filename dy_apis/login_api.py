@@ -1,5 +1,6 @@
 import time
 import urllib.parse
+from urllib.parse import quote
 
 import aiohttp
 import asyncio
@@ -13,6 +14,8 @@ from utils.dy_util import generateSecretPhoneNum, generate_ree_key, generateSecr
 import json
 from threading import Thread
 import qrcode
+
+import utils.request_util
 
 
 class DYLoginApi:
@@ -42,7 +45,10 @@ class DYLoginApi:
             cookies = dict()
             page_cookies = await page.context.cookies()
             for cookie in page_cookies:
-                cookies[cookie['name']] = cookie['value']
+                name = cookie.get('name')
+                value = cookie.get('value')
+                if name and value is not None:
+                    cookies[name] = value
             await browser.close()
             auth.perepare_auth('', web_protect_str, keys_str)
             auth.cookie = cookies
@@ -50,6 +56,7 @@ class DYLoginApi:
 
     # 获取二维码
     def dyGenerateQRcode(self, auth) -> dict:
+        auth.require_cookie_keys(["msToken"])
         api = f"get_qrcode/"
         headers = HeaderBuilder().build(HeaderType.GET)
         headers.set_referer("https://www.douyin.com/")
@@ -68,11 +75,12 @@ class DYLoginApi:
         params.add_param("device_platform", 'web_app')
         params.add_param("msToken", auth.cookie['msToken'])
         params.with_a_bogus()
-        resp = requests.get(self.base_url + api, headers=headers.get(), cookies=auth.cookie, params=params.get(), verify=False)
+        resp = requests.get(self.base_url + api, headers=headers.get(), cookies=auth.cookie, params=params.get())
         return json.loads(resp.text)
 
 
     def dyCheckQrCodeLogin(self, auth, token):
+        auth.require_cookie_keys(["biz_trace_id", "msToken"])
         api = 'check_qrconnect/'
         headers = HeaderBuilder().build(HeaderType.GET)
         headers.set_referer("https://www.douyin.com/")
@@ -94,11 +102,12 @@ class DYLoginApi:
         params.add_param("device_platform", 'web_app')
         params.add_param("msToken", auth.cookie['msToken'])
         params.with_a_bogus()
-        resp = requests.get(self.base_url + api, headers=headers.get(), cookies=auth.cookie, params=params.get(), verify=False)
+        resp = requests.get(self.base_url + api, headers=headers.get(), cookies=auth.cookie, params=params.get())
         return json.loads(resp.text)
 
     # 手机验证码登录
     def dyGeneratePhoneVerificationCode(self, phone_num, auth):
+        auth.require_cookie_keys(["passport_csrf_token", "biz_trace_id", "msToken", "s_v_web_id"])
         api = "send_activation_code/v2/"
         headers = {
             "accept": "application/json, text/javascript",
@@ -133,7 +142,7 @@ class DYLoginApi:
         params.add_param("msToken", auth.cookie['msToken'])
         data = generateSecretPhoneNum(phone_num)
         params.with_a_bogus(data)
-        response = requests.post(self.base_url + api, headers=headers, cookies=auth.cookie, params=params.get(), data=data, verify=False)
+        response = requests.post(self.base_url + api, headers=headers, cookies=auth.cookie, params=params.get(), data=data)
         res_json = json.loads(response.text)
         if res_json['error_code'] == 0:
             print("无需过滑块, 验证码发送成功")
@@ -142,14 +151,15 @@ class DYLoginApi:
         firstLoginRes = json.loads(response.text)
         iframeTemplate = self.generateIframe(auth.cookie, firstLoginRes)
         print(iframeTemplate)
-        input('过滑块')
+        input('过滑块后按回车继续')
         # 过验证码后
         params.add_param("fp", auth.cookie['s_v_web_id'])
         params.add_param("verifyFp", auth.cookie['s_v_web_id'])
-        response = requests.post(self.base_url + api, headers=headers, cookies=auth.cookie, params=params.get(), data=data, verify=False)
+        response = requests.post(self.base_url + api, headers=headers, cookies=auth.cookie, params=params.get(), data=data)
         return json.loads(response.text)
 
     def dyPhoneVerificationCodeLogin(self, auth, phone_num, code):
+        auth.require_cookie_keys(["passport_csrf_token", "biz_trace_id", "msToken"])
         headers = {
             "accept": "application/json, text/javascript",
             "accept-language": "zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6",
@@ -188,7 +198,7 @@ class DYLoginApi:
         params.add_param("msToken", auth.cookie['msToken'])
         params.with_a_bogus()
         data = generateSecretCode(phone_num, code)
-        response = requests.post(self.base_url + api, headers=headers, cookies=auth.cookie, params=params.get(), data=data, verify=False)
+        response = requests.post(self.base_url + api, headers=headers, cookies=auth.cookie, params=params.get(), data=data)
         responseCookies = response.cookies.get_dict()
         # 结合到cookies中
         auth.cookie.update(responseCookies)
@@ -208,12 +218,13 @@ class DYLoginApi:
         for k, v in params.items():
             i = f'{k}={v[0]}&'
             if k == 'host':
-                new_url += requests.utils.quote(i, safe='?=&')
+                new_url += quote(i, safe='?=&')
             else:
-                new_url += requests.utils.quote(i, safe='/?=&*')
+                new_url += quote(i, safe='/?=&*')
         return parsed.scheme + '://' + parsed.netloc + parsed.path + '?' + new_url[:-1]
 
     def persistenceLoginInfo(self, auth):
+        auth.require_cookie_keys(["biz_trace_id", "msToken"])
         url = "https://www.douyin.com/passport/user/web_record_status/set/"
         api = "passport/user/web_record_status/set/"
         headers = {
@@ -236,8 +247,8 @@ class DYLoginApi:
             "sec-fetch-mode": "cors",
             "sec-fetch-site": "same-origin",
             "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/117.0",
-            "x-tt-passport-csrf-token": "07e71018d12ee15b8a50b086cd82d021",
-            "x-tt-passport-trace-id": "5714b00b"
+            "x-tt-passport-csrf-token": auth.cookie.get("passport_csrf_token", ""),
+            "x-tt-passport-trace-id": auth.cookie.get("biz_trace_id", "")
         }
         params = Params()
         params.add_param("user_web_record_status", "1")
@@ -253,7 +264,7 @@ class DYLoginApi:
         params.add_param("device_platform", "web_app")
         params.add_param("msToken", auth.cookie['msToken'])
         params.with_a_bogus()
-        response = requests.get(url, headers=headers, cookies=auth.cookie, params=params.get(), verify=False)
+        response = requests.get(url, headers=headers, cookies=auth.cookie, params=params.get())
         auth.cookie.update(response.cookies.get_dict())
         return json.loads(response.text)
 
@@ -262,14 +273,16 @@ class DYLoginApi:
     def generateQrcode(self, verify_url):
         qr = qrcode.QRCode(
             version=1,
-            error_correction=qrcode.constants.ERROR_CORRECT_L,
+            error_correction=1,
             box_size=10,
             border=4,
         )
         qr.add_data(verify_url)
         qr.make(fit=True)
         img = qr.make_image(fill_color="black", back_color="white")
-        img.show()
+        show = getattr(img, 'show', None)
+        if callable(show):
+            show()
 
     async def qrcodeMain(self):
         auth = await self.dyGenerateInitData()
@@ -286,7 +299,9 @@ class DYLoginApi:
 
     async def phoneMain(self):
         auth = await self.dyGenerateInitData()
-        phone_num = "15251991681"
+        phone_num = input("请输入手机号：").strip()
+        if not phone_num:
+            raise ValueError("手机号不能为空")
         sendCodeRes = self.dyGeneratePhoneVerificationCode(phone_num, auth)
         print(sendCodeRes)
         code = input("请输入验证码：")
@@ -309,17 +324,17 @@ class DYLoginApi:
             "sec-fetch-site": "same-origin",
             "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/117.0",
         }
-        response = requests.get(redirect_url, headers=headers, cookies=auth.cookie, verify=False)
+        response = requests.get(redirect_url, headers=headers, cookies=auth.cookie)
         print(response.status_code)
         if response.status_code == 302:
             print(response.headers)
             location = response.headers['Location']
-            response = requests.get(location, headers=headers, cookies=auth.cookie, verify=False)
+            response = requests.get(location, headers=headers, cookies=auth.cookie)
             auth.cookie.update(response.cookies.get_dict())
             if response.status_code == 302:
                 print(response.headers)
                 location = response.headers['Location']
-                response = requests.get(location, headers=headers, cookies=auth.cookie, verify=False)
+                response = requests.get(location, headers=headers, cookies=auth.cookie)
                 auth.cookie.update(response.cookies.get_dict())
 
         res = self.persistenceLoginInfo(auth)
