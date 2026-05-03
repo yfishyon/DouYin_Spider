@@ -2,7 +2,9 @@ import hashlib
 import json
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
+from threading import Thread
 from typing import Any
 from urllib.parse import urlparse
 
@@ -36,10 +38,13 @@ class DouyinRecvMsg:
     fpId = '9'
     SUPPORTED_PROXY_TYPES = {"http", "socks4", "socks4a", "socks5", "socks5h"}
 
-    def __init__(self, auth: DouyinAuth, auto_reconnect=True):
+    def __init__(self, auth: DouyinAuth, auto_reconnect=True, on_new_message: Callable[[dict[str, Any]], None] | None = None):
         self.auto_reconnect = auto_reconnect
         self.auth = auth
         self.ws = None
+        self.on_new_message_callback = on_new_message
+        self._my_uid: int | None = None
+        self._conversation_cache: dict[str, dict[str, Any]] = {}
         self.auth.require_cookie_keys(["sessionid"])
         deviceId = DouyinAPI.get_device_id(auth=self.auth)
         accessKey = f'{self.fpId + self.appKey + deviceId}f8a69f1719916z'
@@ -86,6 +91,110 @@ class DouyinRecvMsg:
             )
         return proxy_options
 
+    def set_message_handler(self, handler: Callable[[dict[str, Any]], None] | None):
+        self.on_new_message_callback = handler
+        return self
+
+    def get_my_uid(self) -> int:
+        if self._my_uid is None:
+            self._my_uid = int(self.auth.get_uid())
+        return self._my_uid
+
+    def _get_cached_conversation(self, conversation_id: str) -> dict[str, Any]:
+        return self._conversation_cache.get(conversation_id, {}).copy()
+
+    def _cache_conversation_info(self, conversation_info: dict[str, Any]):
+        conversation_id = str(conversation_info.get("conversation_id") or "")
+        if not conversation_id:
+            return
+        cached = self._conversation_cache.setdefault(conversation_id, {})
+        for key in ("conversation_id", "conversation_short_id", "ticket", "sender"):
+            value = conversation_info.get(key)
+            if value not in (None, "", 0):
+                cached[key] = value
+
+    def _resolve_conversation_info(self, message_info: dict[str, Any]) -> dict[str, Any]:
+        conversation_id = str(message_info.get("conversation_id") or "")
+        if not conversation_id:
+            raise ValueError("缺少 conversation_id")
+
+        merged_info = self._get_cached_conversation(conversation_id)
+        merged_info.update({k: v for k, v in message_info.items() if v not in (None, "", 0)})
+
+        conversation_short_id = merged_info.get("conversation_short_id")
+        ticket = str(merged_info.get("ticket") or "")
+        sender = merged_info.get("sender")
+
+        if conversation_short_id and ticket:
+            self._cache_conversation_info(merged_info)
+            return merged_info
+
+        conversation_list = []
+        if conversation_short_id:
+            conversation_list = DouyinAPI.get_conversation_info(
+                self.auth,
+                int(conversation_short_id),
+                conversation_id=conversation_id,
+            )
+        if not conversation_list and sender is not None:
+            conversation_list = DouyinAPI.get_conversation_info(
+                self.auth,
+                0,
+                conversation_id=conversation_id,
+                to_user_id=int(sender),
+            )
+        if conversation_list:
+            merged_info.update(conversation_list[0])
+            merged_info["sender"] = sender
+
+        self._cache_conversation_info(merged_info)
+        return merged_info
+
+    def reply_text(self, message_info: dict[str, Any], content: str) -> bool:
+        conversation_info = self._resolve_conversation_info(message_info)
+        conversation_id = str(conversation_info.get("conversation_id") or "")
+        conversation_short_id = conversation_info.get("conversation_short_id")
+        ticket = str(conversation_info.get("ticket") or "")
+
+        if not conversation_short_id or not ticket:
+            raise ValueError("reply_text 缺少 conversation_short_id 或 ticket，无法发送回复")
+
+        return DouyinAPI.send_msg(
+            self.auth,
+            conversation_id=conversation_id,
+            conversation_short_id=int(conversation_short_id),
+            ticket=ticket,
+            content=content,
+        )
+
+    def _build_message_info(self, msg, content: dict[str, Any], msg_type: int) -> dict[str, Any]:
+        conversation_id = getattr(msg, 'conversation_id', '')
+        message_info = {
+            "conversation_id": conversation_id,
+            "conversation_short_id": getattr(msg, 'conversation_short_id', 0),
+            "sender": getattr(msg, 'sender', ''),
+            "message_type": msg_type,
+            "index_in_conversation": getattr(msg, 'index_in_conversation', 0),
+            "content": content,
+            "text": content.get("text", "") if isinstance(content, dict) else "",
+            "ticket": "",
+        }
+        self._cache_conversation_info(message_info)
+        return message_info
+
+    def _emit_new_message(self, message_info: dict[str, Any]):
+        handler = self.on_new_message_callback
+        if not handler:
+            return
+
+        def _run_handler():
+            try:
+                handler(message_info)
+            except Exception as exc:
+                print(f"消息回调执行失败: {exc}")
+
+        Thread(target=_run_handler, daemon=True).start()
+
     @staticmethod
     def _ensure_dict(content: Any) -> dict:
         if isinstance(content, dict):
@@ -122,8 +231,10 @@ class DouyinRecvMsg:
             conversation_id = getattr(msg, 'conversation_id', '')
             index = getattr(msg, 'index_in_conversation', 0)
             content = self._ensure_dict(content)
+            message_info = self._build_message_info(msg, content, msg_type)
             if msg_type == 7:
                 print(f'【消息编号:{index}】【聊天室ID:{conversation_id}】【来自:{sender}】文本消息:{content.get("text", "")}')
+                self._emit_new_message(message_info)
             elif msg_type == 5:
                 emoji_url = content.get("url", {}).get("url_list", [""])
                 print(f'【消息编号:{index}】【聊天室ID:{conversation_id}】【来自:{sender}】用户表情包消息:{emoji_url[0]}')
