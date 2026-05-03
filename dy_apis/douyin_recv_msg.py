@@ -1,10 +1,16 @@
 import hashlib
 import json
+import sys
 import time
+from pathlib import Path
 from typing import Any
 
 import websocket
 from websocket import WebSocketApp
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from dy_apis.douyin_api import DouyinAPI
 from builder.auth import DouyinAuth
