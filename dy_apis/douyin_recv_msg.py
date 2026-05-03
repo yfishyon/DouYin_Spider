@@ -4,6 +4,7 @@ import sys
 import time
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import websocket
 from websocket import WebSocketApp
@@ -12,17 +13,28 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from dy_apis.douyin_api import DouyinAPI
-from builder.auth import DouyinAuth
-from builder.header import HeaderBuilder
-from builder.params import Params
-from static import Live_pb2, Response_pb2
-from utils.common_util import load_env
+try:
+    from .douyin_api import DouyinAPI
+    from builder.auth import DouyinAuth
+    from builder.header import HeaderBuilder
+    from builder.params import Params
+    from static import Live_pb2, Response_pb2
+    from utils.common_util import load_env
+    from utils.request_util import get_proxy_config
+except ImportError:
+    from dy_apis.douyin_api import DouyinAPI
+    from builder.auth import DouyinAuth
+    from builder.header import HeaderBuilder
+    from builder.params import Params
+    from static import Live_pb2, Response_pb2
+    from utils.common_util import load_env
+    from utils.request_util import get_proxy_config
 
 
 class DouyinRecvMsg:
     appKey = "e1bd35ec9db7b8d846de66ed140b1ad9"
     fpId = '9'
+    SUPPORTED_PROXY_TYPES = {"http", "socks4", "socks4a", "socks5", "socks5h"}
 
     def __init__(self, auth: DouyinAuth, auto_reconnect=True):
         self.auto_reconnect = auto_reconnect
@@ -42,6 +54,37 @@ class DouyinRecvMsg:
          .add_param("access_key", accessKey)
          )
         self.url = f"wss://frontier-im.douyin.com/ws/v2?{params.toString()}"
+
+    @staticmethod
+    def _get_websocket_proxy_options() -> dict[str, Any]:
+        proxies = get_proxy_config()
+        if not proxies:
+            return {}
+
+        proxy_url = proxies.get("https") or proxies.get("http")
+        if not proxy_url:
+            return {}
+
+        parsed = urlparse(proxy_url)
+        if not parsed.hostname:
+            return {}
+
+        proxy_type = (parsed.scheme or "http").lower()
+        if proxy_type not in DouyinRecvMsg.SUPPORTED_PROXY_TYPES:
+            print(f"未识别的代理协议: {proxy_type}，将直接连接 WebSocket")
+            return {}
+
+        proxy_options: dict[str, Any] = {
+            "http_proxy_host": parsed.hostname,
+            "http_proxy_port": parsed.port,
+            "proxy_type": proxy_type,
+        }
+        if parsed.username or parsed.password:
+            proxy_options["http_proxy_auth"] = (
+                parsed.username or "",
+                parsed.password or "",
+            )
+        return proxy_options
 
     @staticmethod
     def _ensure_dict(content: Any) -> dict:
@@ -136,7 +179,10 @@ class DouyinRecvMsg:
             on_open=self.on_open
         )
         try:
-            self.ws.run_forever(origin='https://www.douyin.com')
+            self.ws.run_forever(
+                origin='https://www.douyin.com',
+                **self._get_websocket_proxy_options(),
+            )
         except KeyboardInterrupt:
             self.ws.close()
         except:

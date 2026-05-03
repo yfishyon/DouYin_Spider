@@ -1,5 +1,7 @@
 import os
 # from loguru import logger
+from pathlib import Path
+
 from dotenv import load_dotenv
 
 from utils.request_util import get_proxy_config
@@ -8,9 +10,19 @@ dy_auth = None
 dy_live_auth = None
 
 
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+
+def _load_dotenv_files():
+    env_path = PROJECT_ROOT / '.env'
+    if env_path.exists():
+        return load_dotenv(env_path, override=True)
+    return False
+
+
 def load_env():
     global dy_auth, dy_live_auth
-    load_dotenv()
+    _load_dotenv_files()
     cookies_dy = os.getenv('DY_COOKIES') or ''
     cookies_live = os.getenv('DY_LIVE_COOKIES') or ''
     web_protect_dy = os.getenv('DY_WEB_PROTECT') or ''

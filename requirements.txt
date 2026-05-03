@@ -12,6 +12,7 @@ websockets
 beautifulsoup4
 protobuf
 websocket-client
+PySocks
 bs4
 playwright
 qrcode
