@@ -37,11 +37,38 @@ message RequestBody {
         MessageByInitRequestBody message_by_init = 2043;
         CreateConversationV2RequestBody create_conversation_v2_body = 609;
         GetConversationInfoListV2RequestBody get_conversation_info_list_v2_body = 610;
+        ProfileGetInfoRequestBody profile_get_info_body = 2015;
+        GetUserMessageRequestBody get_user_message = 2048;
     }
 }
 
+message ProfileGetInfoRequestBody {
+    int64 user_id = 1;
+    string sec_uid = 2;
+}
+
 message MessageByInitRequestBody {
-    int32 page = 1;
+    int64 version = 1;
+    int32 page = 2;
+    int32 conv_limit = 3;
+    int32 msg_limit = 4;
+}
+
+message GetUserMessageRequestBody {
+    int64 version = 1;
+    int64 cmd_index = 2;
+    int64 stranger_version = 3;
+    int64 read_version = 4;
+    string source = 5;
+    int64 consult_version = 6;
+    int64 notify_version = 17;
+    GetRecentConvAndMsgRequestBody get_recent_conv_and_msg = 18;
+}
+
+message GetRecentConvAndMsgRequestBody {
+    int64 left_side = 1;
+    int64 right_side = 2;
+    int32 direction = 3;
 }
 
 message SendMessageRequestBody {

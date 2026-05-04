@@ -2,19 +2,45 @@ syntax = "proto3";
 message Response {
     int32 cmd = 1;
     int64 sequence_id = 2;
-    string error_desc = 3;
-    string message = 4;
+    int32 status_code = 3;
+    string error_desc = 4;
     int64 inbox_type = 5;
     ResponseBody body = 6;
+    string log_id = 7;
+    map<string, string> headers = 8;
+    int64 start_time_stamp = 9;
+    int64 request_arrived_time = 10;
+    int64 server_execution_end_time = 11;
+    string pdes_key = 110;
 }
 
 message ResponseBody {
     oneof body {
+        SendMessageResponseBody send_message_body = 100;
         MessageByInitResponseBody message_by_init = 2043;
         NewMessageNotify new_message_notify = 500;
         GetConversationInfoListV2ResponseBody create_conversation_v2_body = 609;
         GetConversationInfoListV2ResponseBody get_conversation_info_list_v2_response_body = 610;
+        ProfileGetInfoResponseBody profile_get_info_body = 2015;
+        GetUserMessageResponseBody get_user_message = 2048;
     }
+}
+
+message SendMessageResponseBody {
+    int64 server_message_id = 1;
+    string extra_info = 2;
+    int32 status = 3;
+    string client_message_id = 4;
+    int64 check_code = 5;
+    string check_message = 6;
+}
+
+message ProfileGetInfoResponseBody {
+    int64 user_id = 1;
+    string sec_uid = 2;
+    string nickname = 3;
+    string avatar = 4;
+    string display_id = 5;
 }
 
 message MessageByInitResponseBody {
@@ -25,6 +51,58 @@ message MessageByInitResponseBody {
     int64 user_cursor = 5;
     int64 cmd_index = 6;
     int64 readconv_version = 7;
+}
+
+message ConversationInfoV2 {
+    string conversation_id = 1;
+    int64 conversation_short_id = 2;
+    int32 conversation_type = 3;
+    string ticket = 4;
+    FirstPageParticipants first_page_participants = 6;
+    int32 participants_count = 7;
+    bool is_participant = 8;
+    int64 inbox_type = 9;
+    int32 badge_count = 10;
+    repeated MuteBadgeCountInfo mute_badge_count_infos = 11;
+    MessageByInitParticipant user_info = 20;
+    MessageByInitConversationCoreInfo conversation_core_info = 50;
+    MessageByInitConversationSettingInfo conversation_setting_info = 51;
+    repeated BotInfo bots = 60;
+}
+
+message GetUserMessageResponseBody {
+    GetRecentMessageRespBody messages = 1;
+    GetCmdMessageRespBody cmd_messages = 2;
+    bool has_stranger_message = 3;
+    ConversationReadInfoRespBody read_info = 4;
+}
+
+message GetRecentMessageRespBody {
+    int64 next_conversation_version = 1;
+    repeated ConversationRecentMessage messages = 2;
+    bool has_more = 3;
+    GetRecentMsgVersionRange range = 4;
+}
+
+message ConversationRecentMessage {
+    ConversationInfoV2 conversation = 1;
+    repeated MessageBody messages = 2;
+}
+
+message GetCmdMessageRespBody {
+    repeated MessageBody messages = 1;
+    bool has_more = 2;
+    int64 next_cmd_index = 3;
+    int64 next_user_message_cursor = 4;
+    int64 readconv_version = 5;
+}
+
+message ConversationReadInfoRespBody {
+}
+
+message GetRecentMsgVersionRange {
+    int64 left_side = 1;
+    int64 right_side = 2;
 }
 
 message MessageByInitConversationInfo {
@@ -42,6 +120,7 @@ message MessageByInitConversation {
     bool is_participant = 8;
     int64 inbox_type = 9;
     int32 badge_count = 10;
+    MessageByInitParticipant user_info = 20;
     MessageByInitConversationCoreInfo conversation_core_info = 50;
     MessageByInitConversationSettingInfo conversation_setting_info = 51;
     repeated MuteBadgeCountInfo mute_badge_count_infos = 60;
@@ -55,7 +134,12 @@ message FirstPageParticipants {
 
 message MessageByInitParticipant {
     int64 user_id = 1;
+    int64 sort_order = 2;
+    int32 role = 3;
+    string alias = 4;
     string sec_uid = 5;
+    int32 blocked = 6;
+    int64 left_block_time = 7;
     map<string, string> ext = 10;
 }
 
@@ -109,9 +193,39 @@ message ExtVersionInfo {
 }
 
 message MuteBadgeCountInfo {
+    int32 message_type = 1;
+    int32 badge_count = 2;
 }
 
 message BotInfo {
+}
+
+message PropertyItem {
+    int64 uid = 1;
+    string sec_uid = 2;
+    int64 create_time = 3;
+    string idempotent_id = 4;
+    string value = 5;
+}
+
+message PropertyItemList {
+    repeated PropertyItem Items = 1;
+}
+
+message ReferenceInfo {
+    int64 referenced_message_id = 1;
+    string hint = 2;
+    int64 ref_message_type = 3;
+    int32 referenced_message_status = 4;
+    int64 root_message_id = 5;
+    int64 root_message_conv_index = 6;
+    map<string, string> ext = 7;
+}
+
+message MsgTrace {
+    map<int32, int64> metrics = 1;
+    int32 path = 2;
+    int32 connStatus = 3;
 }
 
 message NewMessageNotify {
@@ -119,6 +233,20 @@ message NewMessageNotify {
     int32 conversation_type = 3;
     int32 notify_type = 4;
     MessageBody message = 5;
+    int64 previous_cursor = 6;
+    int64 next_cursor = 7;
+    int64 index_in_conversation = 8;
+    int64 index_in_conversation_v2 = 9;
+    int64 conversation_version = 10;
+    int64 previous_conversation_version = 11;
+    int64 cmd_message_index = 12;
+    int32 badge_count = 13;
+    MsgTrace trace = 14;
+    ReferenceInfo ref_msg_info = 15;
+    int64 previous_msg_index_in_conv = 16;
+    int64 readconv_version = 17;
+    int64 pre_readconv_version = 18;
+    MuteBadgeCountInfo mute_badge_count_info = 19;
 }
 
 message MessageBody {
@@ -130,6 +258,15 @@ message MessageBody {
     int32 message_type = 6;
     int64 sender = 7;
     string content = 8;
+    map<string, string> ext = 9;
+    int64 create_time = 10;
+    int64 version = 11;
+    int32 status = 12;
+    int64 order_in_conversation = 13;
+    string sec_sender = 14;
+    map<string, PropertyItemList> property_list = 15;
+    int64 index_in_conversation_v2 = 17;
+    ReferenceInfo reference_info = 18;
 }
 
 message GetConversationInfoListV2ResponseBody {

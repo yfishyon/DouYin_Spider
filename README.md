@@ -143,8 +143,8 @@ python main.py
 # 直播间监听（弹幕 / 礼物 / 点赞等）
 python dy_live/server.py
 
-# 抖音私信实时接收
-python dy_apis/douyin_recv_msg.py
+# 抖音私信客户端
+python dy_apis/douyin_im_client.py
 ```
 
 ### 🗝️注意事项
@@ -152,7 +152,7 @@ python dy_apis/douyin_recv_msg.py
 - `main.py` 是爬虫入口，可根据需求自行修改调用
 - `dy_apis/douyin_api.py` 包含全部 API 接口封装，含直播间点赞、发消息、私信收发等
 - `dy_live/server.py` 包含直播间 WebSocket 监听逻辑
-- `dy_apis/douyin_recv_msg.py` 包含抖音私信 WebSocket 实时接收逻辑
+- `dy_apis/douyin_im_client.py` 包含抖音私信 IM 客户端逻辑，支持 WebSocket 消息接收、会话缓存与自动回复辅助
 
 ## 🍥日志
 

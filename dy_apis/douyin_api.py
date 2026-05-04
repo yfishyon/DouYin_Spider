@@ -78,10 +78,15 @@ def _normalize_conversation_info(conversation: dict) -> dict:
         or _deep_get(conversation, "target_user", "nickname")
         or _deep_get(conversation, "to_user", "nickname")
         or _deep_get(conversation, "user_info", "nickname")
+        or _deep_get(conversation, "user_info", "alias")
         or _deep_get(target_participant, "nickname")
+        or _deep_get(target_participant, "alias")
         or _deep_get(conversation, "participant", 0, "nickname")
+        or _deep_get(conversation, "participant", 0, "alias")
         or _deep_get(conversation, "participants", 0, "nickname")
+        or _deep_get(conversation, "participants", 0, "alias")
         or _deep_get(conversation, "member", 0, "nickname")
+        or _deep_get(conversation, "member", 0, "alias")
         or ""
     )
     remark_name = (
@@ -1899,11 +1904,13 @@ class DouyinAPI:
         response_proto.ParseFromString(resp.content)
         message_by_init = response_proto.body.message_by_init
         conversation_list = []
+        enrich_user_info = kwargs.get("enrich_user_info", True)
         user_cache = {}
         for item in message_by_init.messages:
             conversation = protobuf_to_dict(item.conversations)
             normalized = _normalize_conversation_info(conversation)
-            normalized = _enrich_conversation_name_from_user_info(auth, normalized, user_cache)
+            if enrich_user_info:
+                normalized = _enrich_conversation_name_from_user_info(auth, normalized, user_cache)
             conversation_list.append(normalized)
         return conversation_list
 
